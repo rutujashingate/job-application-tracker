@@ -553,6 +553,11 @@ Run every 10 minutes:
 
 The number represents seconds.
 
+The installer deploys the runnable code, virtual environment, and private
+configuration to `~/Library/Application Support/JobApplicationTracker`. This
+keeps the LaunchAgent outside macOS-protected `Desktop` and `Documents`
+folders. Re-run the installer after changing the code or `.env` settings.
+
 Examples:
 
 ```bash
@@ -582,25 +587,29 @@ launchctl kickstart -k \
 ### View activity logs
 
 ```bash
-tail -50 logs/job-tracker.log
+tail -50 \
+  "$HOME/Library/Application Support/JobApplicationTracker/logs/job-tracker.log"
 ```
 
 Follow the log continuously:
 
 ```bash
-tail -f logs/job-tracker.log
+tail -f \
+  "$HOME/Library/Application Support/JobApplicationTracker/logs/job-tracker.log"
 ```
 
 ### View error logs
 
 ```bash
-tail -50 logs/job-tracker-error.log
+tail -50 \
+  "$HOME/Library/Application Support/JobApplicationTracker/logs/job-tracker-error.log"
 ```
 
 Follow errors continuously:
 
 ```bash
-tail -f logs/job-tracker-error.log
+tail -f \
+  "$HOME/Library/Application Support/JobApplicationTracker/logs/job-tracker-error.log"
 ```
 
 ### Remove the background service
@@ -874,7 +883,8 @@ launchctl print \
 Check errors:
 
 ```bash
-tail -100 logs/job-tracker-error.log
+tail -100 \
+  "$HOME/Library/Application Support/JobApplicationTracker/logs/job-tracker-error.log"
 ```
 
 Reinstall it:

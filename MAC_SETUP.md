@@ -28,8 +28,10 @@ launchctl print \
 ```
 
 ```bash
-tail -50 logs/job-tracker.log
-tail -50 logs/job-tracker-error.log
+tail -50 \
+  "$HOME/Library/Application Support/JobApplicationTracker/logs/job-tracker.log"
+tail -50 \
+  "$HOME/Library/Application Support/JobApplicationTracker/logs/job-tracker-error.log"
 ```
 
 ## 4. Change frequency
@@ -54,3 +56,9 @@ Every 15 minutes:
 
 The tracker does not need an open Terminal window. It can run only while the
 Mac is on, the user is logged in, and the machine is awake.
+
+The installer deploys a private runtime copy to
+`~/Library/Application Support/JobApplicationTracker`. This is required when
+the project is under `Desktop` or `Documents`, because macOS can deny a
+background LaunchAgent access to those protected folders. Run the installer
+again after changing the tracker code or its `.env` settings.

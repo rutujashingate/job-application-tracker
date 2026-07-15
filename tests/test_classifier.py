@@ -95,6 +95,32 @@ def test_other_candidates_rejection():
     assert result.status == "Rejected"
 
 
+def test_application_confirmation_with_hypothetical_rejection_is_applied():
+    result = classify_email(
+        email(
+            "Thank you for applying to Glean",
+            "We received your application for Software Engineer, AI "
+            "Infrastructure, and we will review it. If you are not selected "
+            "for this position, keep an eye on our jobs page.",
+            "Glean <no-reply@us.greenhouse-mail.io>",
+        ),
+        settings(),
+    )
+    assert result.status == "Applied"
+
+
+def test_regret_to_inform_rejection():
+    result = classify_email(
+        email(
+            "Application update",
+            "After careful consideration, we regret to inform you that we "
+            "selected another candidate for this role.",
+        ),
+        settings(),
+    )
+    assert result.status == "Rejected"
+
+
 def test_consultancy_offer_marketing_is_ignored():
     result = classify_email(
         email(

@@ -170,7 +170,7 @@ def run(args: argparse.Namespace) -> int:
             continue
 
         company = extract_company(email)
-        role = extract_role(email)
+        role = extract_role(email, company)
         match = find_matching_application(
             email, company, role, records
         )

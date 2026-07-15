@@ -120,19 +120,32 @@ APPLICATION_PHRASES = [
     "you applied for this job",
 ]
 
-REJECTION_PHRASES = [
-    "unfortunately, we will not be moving forward",
-    "unfortunately we will not be moving forward",
-    "will not be moving forward with your application",
-    "we have decided not to move forward",
-    "decided not to proceed with your application",
-    "moving forward with other candidates",
-    "move forward with other candidates",
-    "pursue other candidates",
-    "not selected for the position",
-    "not selected for this position",
-    "your application has been rejected",
-    "we are unable to move forward with your candidacy",
+REJECTION_PATTERNS = [
+    r"\bwe (?:have )?(?:decided|chosen) not to (?:move forward|proceed)\b",
+    r"\bwe (?:will not|won't) be moving forward\b",
+    r"\bwe (?:cannot|can't|are unable to) move forward\b",
+    r"\bwill not be moving forward with your (?:application|candidacy)\b",
+    r"\bnot moving forward with your (?:application|candidacy)\b",
+    r"\bdecided not to proceed with your application\b",
+    r"\b(?:moving|move|proceeding) forward with other candidates\b",
+    r"\b(?:pursue|proceed with) other candidates?\b",
+    r"\b(?:selected|chosen) (?:another|an other|other) candidate\b",
+    r"\b(?:you (?:were|are|have been)|your application (?:was|has been)) "
+    r"not selected\b",
+    r"\byour application has been rejected\b",
+    r"\bwe regret to inform you\b",
+    r"\bthe position has been filled\b",
+    r"\bwe will not be progressing (?:with )?your (?:application|candidacy)\b",
+]
+
+# Application confirmations often contain boilerplate such as "If you are not
+# selected ...". Remove that conditional wording before looking for a direct
+# rejection so an Applied email does not become a false Rejected update.
+HYPOTHETICAL_REJECTION_PATTERNS = [
+    r"\bif you are not selected for (?:this|the) position\b",
+    r"\bif your application is not selected\b",
+    r"\bshould you not be selected for (?:this|the) position\b",
+    r"\bonly (?:the )?candidates selected (?:for|to)\b",
 ]
 
 INTERVIEW_PHRASES = [
@@ -228,6 +241,16 @@ def _has_any(text: str, phrases: list[str]) -> bool:
     return any(phrase in text for phrase in phrases)
 
 
+def _has_rejection_language(text: str) -> bool:
+    direct_text = text
+    for pattern in HYPOTHETICAL_REJECTION_PATTERNS:
+        direct_text = re.sub(pattern, " ", direct_text)
+    return any(
+        re.search(pattern, direct_text)
+        for pattern in REJECTION_PATTERNS
+    )
+
+
 def _is_ats_domain(domain: str) -> bool:
     return any(
         domain == ats
@@ -312,7 +335,7 @@ def classify_email(
             requires_existing_application=True,
         )
 
-    if _has_any(text, REJECTION_PHRASES):
+    if _has_rejection_language(text):
         return Classification(
             "Rejected",
             "Direct job-rejection wording detected.",
