@@ -121,6 +121,19 @@ def test_regret_to_inform_rejection():
     assert result.status == "Rejected"
 
 
+def test_specific_rejection_phrasing_is_recognized():
+    result = classify_email(
+        email(
+            "Thank you for your interest in working at Roblox",
+            "We have now filled all of our openings for this role and will "
+            "not be moving forward with your candidacy at this time.",
+            "no-reply@roblox.com",
+        ),
+        settings(),
+    )
+    assert result.status == "Rejected"
+
+
 def test_consultancy_offer_marketing_is_ignored():
     result = classify_email(
         email(

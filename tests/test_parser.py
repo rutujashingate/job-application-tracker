@@ -98,6 +98,29 @@ def test_extracts_workday_company_and_role_from_rejection():
     assert extract_role(message, company) == "Associate Software Engineer"
 
 
+def test_extracts_ats_company_and_role_from_title_subject():
+    message = email(
+        "Web Content Coordinator|R0428959 at DaVita",
+        "Thank you for applying!",
+        "Dani from DaVita Kidney Care <DavitaRecruiting@paradox.ai>",
+    )
+
+    company = extract_company(message)
+    assert company == "DaVita"
+    assert extract_role(message, company) == "Web Content Coordinator"
+
+
+def test_extracts_company_from_boilerplate_rejection_subject():
+    message = email(
+        "Thanks for applying to Roblox - we hope to connect again soon",
+        "We have now filled all of our openings for this role and will not "
+        "be moving forward with your candidacy at this time.",
+        "no-reply@roblox.com",
+    )
+
+    assert extract_company(message) == "Roblox"
+
+
 def test_matches_unique_company_row_when_old_role_is_unknown():
     message = email(
         "OpenAI Application Update for Candidate",
@@ -110,6 +133,46 @@ def test_matches_unique_company_row_when_old_role_is_unknown():
         message,
         "OpenAI",
         "Full-Stack Software Engineer",
+        [record],
+    )
+
+    assert match is record
+
+
+def test_rejected_match_can_fall_back_to_single_company_row():
+    message = email(
+        "Thank you for your interest ReliaQuest!",
+        "Thank you for taking the time to apply for the Associate Software "
+        "Engineer position. After reviewing your background, we've decided "
+        "to move forward with other candidates.",
+        "reliaquest@myworkday.com",
+    )
+    record = application("ReliaQuest", "Unknown Role")
+
+    match = find_matching_application(
+        message,
+        "ReliaQuest",
+        "Associate Software Engineer",
+        [record],
+        proposed_status="Rejected",
+    )
+
+    assert match is record
+
+
+def test_matches_boilerplate_company_variants():
+    message = email(
+        "Thank you for your interest in Signals",
+        "We regret to inform you that we selected another candidate for the "
+        "role.",
+        "Pete Ketchum II <notifications@app.bamboohr.com>",
+    )
+    record = application("Signals and", "UX/UI Creator")
+
+    match = find_matching_application(
+        message,
+        "Signals",
+        "Unknown Role",
         [record],
     )
 

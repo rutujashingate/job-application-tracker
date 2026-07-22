@@ -17,6 +17,7 @@ ATS_DOMAINS = (
     "ashbyhq.com",
     "workday.com",
     "myworkdayjobs.com",
+    "myworkday.com",
     "smartrecruiters.com",
     "icims.com",
     "jobvite.com",
@@ -30,6 +31,9 @@ ATS_DOMAINS = (
     "successfactors.com",
     "eightfold.ai",
     "phenompeople.com",
+    "paradox.ai",
+    "pageuppeople.com",
+    "applytojob.com",
 )
 
 GENERIC_DOMAINS = {
@@ -75,9 +79,16 @@ def _domain_is_ats(domain: str) -> bool:
 
 def _company_from_text(text: str) -> Optional[str]:
     patterns = [
-        r"thank(?:s| you) for applying to\s+([A-Z0-9][A-Za-z0-9&.'\- ]{1,70})",
+        r"thank(?:s| you) for your interest in working at\s+"
+        r"([A-Z0-9][A-Za-z0-9&.'\- ]{1,70})",
+        r"thank(?:s| you) for your interest in(?: being a part of)?\s+"
+        r"([A-Z0-9][A-Za-z0-9&.'\- ]{1,70})",
+        r"thank(?:s| you) for applying(?: to| at| for)\s+"
+        r"([A-Z0-9][A-Za-z0-9&.'\- ]{1,70})",
         r"thank you for your interest(?: in)?\s+"
         r"([A-Z0-9][A-Za-z0-9&.'\- ]{1,70})",
+        r"working at\s+([A-Z0-9][A-Za-z0-9&.'\- ]{1,70})",
+        r"working for\s+([A-Z0-9][A-Za-z0-9&.'\- ]{1,70})",
         r"application (?:to|with|at)\s+(?!the (?:position|role)\b)"
         r"([A-Z0-9][A-Za-z0-9&.'\- ]{1,70})",
         r"your application with\s+([A-Z0-9][A-Za-z0-9&.'\- ]{1,70})",
@@ -85,6 +96,8 @@ def _company_from_text(text: str) -> Optional[str]:
         r"([A-Z0-9][A-Za-z0-9&.'\- ]{1,70})",
         r"invited by\s+([A-Z0-9][A-Za-z0-9&.'\- ]{1,70})",
         r"on behalf of\s+([A-Z0-9][A-Za-z0-9&.'\- ]{1,70})",
+        r"^[^|\n]{0,120}\|\s*[^|\n]+\s+at\s+"
+        r"([A-Z0-9][A-Za-z0-9&.'\- ]{1,70})",
         r"^([A-Z0-9][A-Za-z0-9&.'\- ]{1,70}?)\s*"
         r"(?:[-–|:]\s*)?application update\b",
     ]
@@ -93,7 +106,9 @@ def _company_from_text(text: str) -> Optional[str]:
         if not match:
             continue
         company = re.split(
-            r"[.!|,\n]|\s+for\s+(?:the\s+)?",
+            r"[.!|,\n]|\s+for\s+(?:the\s+)?"
+            r"|\s+[-–—]\s+(?:we|thank|thanks|regarding|candidacy|"
+            r"application|future|stay|to)\b",
             match.group(1),
             maxsplit=1,
         )[0]
@@ -169,6 +184,12 @@ def _clean_role(value: str) -> Optional[str]:
         role,
         flags=re.IGNORECASE,
     )
+    role = re.sub(
+        r"\s+at\s+[A-Z][A-Za-z0-9&.'\- ]{1,70}$",
+        "",
+        role,
+        flags=re.IGNORECASE,
+    )
     role = _clean(role)
     if _normalize(role) in {
         "this",
@@ -193,7 +214,10 @@ def extract_role(email: EmailMessage, company: str = "") -> str:
         r"|\||\n|$)"
     )
     patterns = [
+        rf"(?:(?:thank|thanks)\s+for\s+your interest in\s+(?:the )?)"
+        rf"(.{{2,140}}?)\s+(?:role|position|opening)\b{stop}",
         rf"(?:job title|position|role)\s*[:\-]\s*(.{{2,140}}?){stop}",
+        rf"(?:role|position)\s+of\s+(.{{2,140}}?){stop}",
         rf"(?:received|submitted|reviewing) your application for "
         rf"(?:the )?(.{{2,140}}?){stop}",
         rf"(?:your )?application for (?:the )?(.{{2,140}}?){stop}",
@@ -219,6 +243,8 @@ def extract_role(email: EmailMessage, company: str = "") -> str:
             return role
 
     subject_parts = re.split(r"\s[-–|:]\s", email.subject)
+    if len(subject_parts) == 1:
+        subject_parts = re.split(r"\s*[-–|:]\s*", email.subject)
     ignored = (
         "application",
         "thank you",
@@ -252,6 +278,21 @@ def _similarity(left: str, right: str) -> float:
     return SequenceMatcher(
         None, _normalize(left), _normalize(right)
     ).ratio()
+
+
+def _company_similarity(left: str, right: str) -> float:
+    left_normalized = _normalize(left)
+    right_normalized = _normalize(right)
+    score = _similarity(left, right)
+    if (
+        min(len(left_normalized), len(right_normalized)) >= 5
+        and (
+            left_normalized in right_normalized
+            or right_normalized in left_normalized
+        )
+    ):
+        return max(score, 0.92)
+    return score
 
 
 def _role_similarity(left: str, right: str) -> float:
@@ -297,8 +338,10 @@ def find_matching_application(
     company: str,
     role: str,
     records: Iterable[ApplicationRecord],
+    proposed_status: str | None = None,
 ) -> Optional[ApplicationRecord]:
     candidates = list(records)
+    rejection_mode = proposed_status == "Rejected"
 
     same_thread = [
         record
@@ -328,13 +371,14 @@ def find_matching_application(
         if len(exact) == 1:
             return exact[0]
 
+    same_company_threshold = 0.86 if rejection_mode else 0.9
     same_company: list[tuple[float, ApplicationRecord]] = []
     if company_known:
         for record in candidates:
             if not _known_company(record.company):
                 continue
-            company_score = _similarity(company, record.company)
-            if company_score >= 0.9:
+            company_score = _company_similarity(company, record.company)
+            if company_score >= same_company_threshold:
                 same_company.append((company_score, record))
 
         compatible = [
@@ -342,14 +386,19 @@ def find_matching_application(
             for _, record in same_company
             if not role_known
             or not _known_role(record.role)
-            or _role_similarity(role, record.role) >= 0.62
+            or _role_similarity(role, record.role)
+            >= (0.54 if rejection_mode else 0.62)
         ]
         if len(compatible) == 1:
             return compatible[0]
+        if rejection_mode and len(same_company) == 1:
+            return same_company[0][1]
 
     scored: list[tuple[float, ApplicationRecord]] = []
+    score_threshold = 0.72 if rejection_mode else 0.76
+    margin_threshold = 0.06 if rejection_mode else 0.08
     for record in candidates:
-        company_score = _similarity(company, record.company)
+        company_score = _company_similarity(company, record.company)
         role_score = _role_similarity(role, record.role)
         domain_bonus = (
             0.12
@@ -366,16 +415,20 @@ def find_matching_application(
             continue
 
         if not company_known:
-            if role_score >= 0.92:
+            if role_score >= (0.88 if rejection_mode else 0.92):
                 scored.append((role_score + domain_bonus, record))
             continue
 
-        if not _known_role(record.role) and company_score >= 0.82:
+        if not _known_role(record.role) and company_score >= (
+            0.78 if rejection_mode else 0.82
+        ):
             scored.append((company_score + domain_bonus, record))
             continue
 
         score = 0.55 * company_score + 0.45 * role_score + domain_bonus
-        if company_score >= 0.72 and role_score >= 0.62:
+        if company_score >= (0.66 if rejection_mode else 0.72) and (
+            role_score >= (0.52 if rejection_mode else 0.62)
+        ):
             scored.append((score, record))
 
     if not scored:
@@ -383,6 +436,6 @@ def find_matching_application(
 
     scored.sort(key=lambda item: item[0], reverse=True)
     best_score, best = scored[0]
-    if len(scored) > 1 and best_score - scored[1][0] < 0.08:
+    if len(scored) > 1 and best_score - scored[1][0] < margin_threshold:
         return None
-    return best if best_score >= 0.76 else None
+    return best if best_score >= score_threshold else None

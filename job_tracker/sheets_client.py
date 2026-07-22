@@ -25,16 +25,168 @@ STATUS_OPTIONS = [
     "Withdrawn",
 ]
 
+STATUS_COLUMN_INDEX = 3
 
-def ensure_structure(sheets: Any, settings: Settings) -> None:
+STATUS_CELL_FORMATS: dict[str, dict[str, Any]] = {
+    "Applied": {
+        "backgroundColor": {"red": 1.0, "green": 0.93, "blue": 0.67},
+    },
+    "Assessment": {
+        "backgroundColor": {"red": 0.84, "green": 0.93, "blue": 0.78},
+    },
+    "Interview": {
+        "backgroundColor": {"red": 0.82, "green": 0.90, "blue": 0.97},
+    },
+    "Rejected": {
+        "backgroundColor": {"red": 0.98, "green": 0.85, "blue": 0.85},
+    },
+    "Offer": {
+        "backgroundColor": {"red": 0.84, "green": 0.93, "blue": 0.84},
+    },
+    "Withdrawn": {
+        "backgroundColor": {"red": 0.92, "green": 0.92, "blue": 0.92},
+    },
+}
+
+
+def _status_conditional_format_rule(
+    sheet_id: int,
+    status: str,
+) -> dict[str, Any] | None:
+    status_format = STATUS_CELL_FORMATS.get(status)
+    if not status_format:
+        return None
+
+    return {
+        "ranges": [
+            {
+                "sheetId": sheet_id,
+                "startRowIndex": 1,
+                "startColumnIndex": STATUS_COLUMN_INDEX,
+                "endColumnIndex": STATUS_COLUMN_INDEX + 1,
+            }
+        ],
+        "booleanRule": {
+            "condition": {
+                "type": "TEXT_EQ",
+                "values": [{"userEnteredValue": status}],
+            },
+            "format": {
+                **status_format,
+                "textFormat": {"bold": True},
+            },
+        },
+    }
+
+
+def _rule_matches_status(
+    rule: dict[str, Any],
+    sheet_id: int,
+    status: str,
+) -> bool:
+    condition = rule.get("booleanRule", {}).get("condition", {})
+    if condition.get("type") != "TEXT_EQ":
+        return False
+
+    values = condition.get("values", [])
+    if not values or values[0].get("userEnteredValue") != status:
+        return False
+
+    ranges = rule.get("ranges", [])
+    if not ranges:
+        return False
+
+    first_range = ranges[0]
+    return (
+        first_range.get("sheetId") == sheet_id
+        and first_range.get("startRowIndex", 1) == 1
+        and first_range.get("startColumnIndex") == STATUS_COLUMN_INDEX
+        and first_range.get("endColumnIndex", STATUS_COLUMN_INDEX + 1)
+        == STATUS_COLUMN_INDEX + 1
+    )
+
+
+def _ensure_status_conditional_formats(
+    sheets: Any,
+    settings: Settings,
+    sheet_id: int,
+    existing_rules: list[dict[str, Any]],
+) -> None:
+    update_requests: list[dict[str, Any]] = []
+    add_requests: list[dict[str, Any]] = []
+    status_rule_indexes: dict[str, int] = {}
+
+    for index, rule in enumerate(existing_rules):
+        for status in STATUS_OPTIONS:
+            if _rule_matches_status(rule, sheet_id, status):
+                status_rule_indexes[status] = index
+                break
+
+    for status in STATUS_OPTIONS:
+        desired_rule = _status_conditional_format_rule(sheet_id, status)
+        if desired_rule is None:
+            continue
+
+        existing_index = status_rule_indexes.get(status)
+        if existing_index is None:
+            add_requests.append(
+                {
+                    "addConditionalFormatRule": {
+                        "index": 0,
+                        "rule": desired_rule,
+                    }
+                }
+            )
+            continue
+
+        if existing_rules[existing_index] != desired_rule:
+            update_requests.append(
+                {
+                    "updateConditionalFormatRule": {
+                        "index": existing_index,
+                        "rule": desired_rule,
+                    }
+                }
+            )
+
+    if update_requests:
+        (
+            sheets.spreadsheets()
+            .batchUpdate(
+                spreadsheetId=settings.spreadsheet_id,
+                body={"requests": update_requests},
+            )
+            .execute()
+        )
+
+    if add_requests:
+        (
+            sheets.spreadsheets()
+            .batchUpdate(
+                spreadsheetId=settings.spreadsheet_id,
+                body={"requests": add_requests},
+            )
+            .execute()
+        )
+
+
+def ensure_structure(sheets: Any, settings: Settings) -> int:
     metadata = (
         sheets.spreadsheets()
         .get(
             spreadsheetId=settings.spreadsheet_id,
-            fields="sheets.properties.sheetId,sheets.properties.title",
+            fields=(
+                "sheets.properties.sheetId,"
+                "sheets.properties.title,"
+                "sheets.conditionalFormats"
+            ),
         )
         .execute()
     )
+    sheet_by_title = {
+        sheet["properties"]["title"]: sheet
+        for sheet in metadata.get("sheets", [])
+    }
     title_to_id = {
         sheet["properties"]["title"]: sheet["properties"]["sheetId"]
         for sheet in metadata.get("sheets", [])
@@ -129,6 +281,17 @@ def ensure_structure(sheets: Any, settings: Settings) -> None:
         .execute()
     )
 
+    _ensure_status_conditional_formats(
+        sheets,
+        settings,
+        title_to_id[settings.applications_sheet],
+        sheet_by_title.get(settings.applications_sheet, {}).get(
+            "conditionalFormats", []
+        ),
+    )
+
+    return title_to_id[settings.applications_sheet]
+
 
 def clear_tracking_data(sheets: Any, settings: Settings) -> None:
     for range_name in (
@@ -213,6 +376,62 @@ def _display_status(
     return next_auto_status
 
 
+def _status_format_request(
+    sheet_id: int,
+    row_number: int,
+    status: str,
+) -> dict[str, Any] | None:
+    status_format = STATUS_CELL_FORMATS.get(status)
+    if not status_format:
+        return None
+
+    return {
+        "repeatCell": {
+            "range": {
+                "sheetId": sheet_id,
+                "startRowIndex": row_number - 1,
+                "endRowIndex": row_number,
+                "startColumnIndex": STATUS_COLUMN_INDEX,
+                "endColumnIndex": STATUS_COLUMN_INDEX + 1,
+            },
+            "cell": {
+                "userEnteredFormat": {
+                    **status_format,
+                    "textFormat": {"bold": True},
+                }
+            },
+            "fields": (
+                "userEnteredFormat.backgroundColor,"
+                "userEnteredFormat.textFormat.bold"
+            ),
+        }
+    }
+
+
+def _apply_status_formats(
+    sheets: Any,
+    settings: Settings,
+    sheet_id: int,
+    rows: Iterable[tuple[int, str]],
+) -> None:
+    requests = [
+        request
+        for row_number, status in rows
+        if (request := _status_format_request(sheet_id, row_number, status))
+    ]
+    if not requests:
+        return
+
+    (
+        sheets.spreadsheets()
+        .batchUpdate(
+            spreadsheetId=settings.spreadsheet_id,
+            body={"requests": requests},
+        )
+        .execute()
+    )
+
+
 def create_application(
     email: EmailMessage, company: str, role: str, status: str
 ) -> ApplicationRecord:
@@ -259,9 +478,12 @@ def update_application(
         if record.role == "Unknown Role" and role != "Unknown Role"
         else record.role
     )
-    next_status = _display_status(
-        record.status, record.auto_status, proposed_status
-    )
+    if proposed_status == "Rejected":
+        next_status = "Rejected"
+    else:
+        next_status = _display_status(
+            record.status, record.auto_status, proposed_status
+        )
 
     application_date = record.application_date or email.date
     if proposed_status == "Applied":
@@ -318,6 +540,8 @@ def review_row(
 def write_changes(
     sheets: Any,
     settings: Settings,
+    applications_sheet_id: int,
+    existing_application_count: int,
     existing_updates: Iterable[ApplicationRecord],
     new_applications: Iterable[ApplicationRecord],
     review_rows: list[list[str]],
@@ -328,6 +552,7 @@ def write_changes(
         for record in existing_updates
         if record.row_number is not None
     ]
+    new_records = list(new_applications)
     if updates:
         (
             sheets.spreadsheets()
@@ -351,7 +576,7 @@ def write_changes(
             .execute()
         )
 
-    new_values = [record.values for record in new_applications]
+    new_values = [record.values for record in new_records]
     if new_values:
         (
             sheets.spreadsheets()
@@ -365,6 +590,25 @@ def write_changes(
             )
             .execute()
         )
+
+    status_rows = [
+        (record.row_number, record.values[3])
+        for record in updates
+        if record.row_number is not None
+    ]
+    status_rows.extend(
+        (
+            existing_application_count + 2 + index,
+            record.values[3],
+        )
+        for index, record in enumerate(new_records)
+    )
+    _apply_status_formats(
+        sheets,
+        settings,
+        applications_sheet_id,
+        status_rows,
+    )
 
     if review_rows:
         (

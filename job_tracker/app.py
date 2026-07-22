@@ -107,7 +107,7 @@ def run(args: argparse.Namespace) -> int:
         )
 
     gmail, sheets = build_services(settings)
-    ensure_structure(sheets, settings)
+    applications_sheet_id = ensure_structure(sheets, settings)
 
     if args.rebuild:
         clear_tracking_data(sheets, settings)
@@ -119,6 +119,7 @@ def run(args: argparse.Namespace) -> int:
         else get_processed_ids(sheets, settings)
     )
     records = get_applications(sheets, settings)
+    existing_application_count = len(records)
 
     candidate_ids = list_message_ids(
         gmail, build_query(settings.start_date)
@@ -172,7 +173,7 @@ def run(args: argparse.Namespace) -> int:
         company = extract_company(email)
         role = extract_role(email, company)
         match = find_matching_application(
-            email, company, role, records
+            email, company, role, records, classification.status
         )
 
         if classification.status == "Applied":
@@ -243,6 +244,8 @@ def run(args: argparse.Namespace) -> int:
     write_changes(
         sheets,
         settings,
+        applications_sheet_id,
+        existing_application_count,
         changed_existing.values(),
         new_records,
         reviews,

@@ -1,0 +1,43 @@
+# Google OAuth credentials and local authorization
+credentials.json
+client_secret*.json
+token.json
+*.token.json
+
+# Local environment variables
+.env
+.env.*
+!.env.example
+
+# Python virtual environments
+venv/
+.venv/
+env/
+
+# Python cache and test files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime files
+.job_tracker.lock
+logs/
+*.log
+
+# Local data and exports
+*.csv
+*.xlsx
+*.db
+*.sqlite
+*.sqlite3
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/

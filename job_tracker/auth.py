@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from google.auth.transport.requests import Request
@@ -54,7 +55,7 @@ def build_services(settings: Settings) -> tuple[Any, Any]:
         try:
             credentials = flow.run_local_server(
                 host="127.0.0.1",
-                port=8765,
+                port=int(os.getenv("OAUTH_LOCAL_SERVER_PORT", "0")),
                 open_browser=False,
                 prompt="consent",
                 include_granted_scopes="true",
